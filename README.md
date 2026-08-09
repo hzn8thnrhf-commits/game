@@ -12,8 +12,11 @@ frameworks, no build step, just open `index.html`.
 
 ## Features
 
-- Touch-first controls (pointer events, drag lift so your finger doesn't hide
-  the piece), works with mouse too.
+- Touch-first controls (pointer events; the dragged piece rides fully above
+  your fingertip, however tall it is), works with mouse too.
+- Forgiving drag-and-drop: magnetic snapping onto the nearest valid cells with
+  a sticky target so it doesn't jitter, a pickup pop animation, a fly-back
+  animation on invalid drops, and whole-slot touch targets in the tray.
 - Placement preview with highlight of lines that would clear.
 - Synthesized sound effects (Web Audio, no asset files) with a mute toggle.
 - Visible combo meter: the streak multiplier and a 3-pip window that drains
