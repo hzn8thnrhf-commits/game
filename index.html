@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Block Burst">
+<meta name="theme-color" content="#1a2148">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<title>Block Burst</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  :root {
+    --bg-top: #232a5c;
+    --bg-bottom: #151a3a;
+    --board-bg: #10142e;
+    --cell-bg: #1e2452;
+    --text: #ffffff;
+    --gold: #ffd45e;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  #app {
+    width: 100%;
+    max-width: 460px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 12px;
+  }
+
+  /* ---- Header / scores ---- */
+  #header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 4px 10px;
+  }
+
+  .score-box { text-align: center; min-width: 90px; }
+  .score-label {
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: 0.6;
+    margin-bottom: 2px;
+  }
+  #score { font-size: 34px; font-weight: 800; line-height: 1; }
+  #best {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--gold);
+  }
+  .crown { font-size: 14px; }
+
+  #combo-banner {
+    height: 26px;
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--gold);
+    text-shadow: 0 2px 8px rgba(255, 212, 94, 0.5);
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 0.25s, transform 0.25s;
+  }
+  #combo-banner.show { opacity: 1; transform: scale(1); }
+
+  /* ---- Board ---- */
+  #board-wrap {
+    position: relative;
+    background: var(--board-bg);
+    border-radius: 14px;
+    padding: 6px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, var(--cell));
+    grid-template-rows: repeat(8, var(--cell));
+    gap: var(--gap);
+  }
+
+  .cell {
+    width: var(--cell);
+    height: var(--cell);
+    background: var(--cell-bg);
+    border-radius: 22%;
+    position: relative;
+    transition: background 0.08s;
+  }
+
+  .cell.filled { background: transparent; }
+
+  .block {
+    position: absolute;
+    inset: 0;
+    border-radius: 22%;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,0.28), inset 0 2px 0 rgba(255,255,255,0.35);
+  }
+
+  .cell.preview::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 22%;
+    background: rgba(255, 255, 255, 0.28);
+  }
+  .cell.preview-clear::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 22%;
+    background: rgba(255, 224, 130, 0.45);
+    box-shadow: 0 0 10px rgba(255, 224, 130, 0.6);
+  }
+
+  @keyframes pop {
+    0%   { transform: scale(1);   opacity: 1; }
+    60%  { transform: scale(1.25); opacity: 0.9; }
+    100% { transform: scale(0);  opacity: 0; }
+  }
+  .block.clearing { animation: pop 0.3s ease-in forwards; }
+
+  @keyframes drop-in {
+    0%   { transform: scale(0.3); }
+    70%  { transform: scale(1.12); }
+    100% { transform: scale(1); }
+  }
+  .block.placed { animation: drop-in 0.18s ease-out; }
+
+  /* ---- Piece tray ---- */
+  #tray {
+    width: 100%;
+    flex: 1;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    min-height: 110px;
+  }
+
+  .slot {
+    width: 30%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .piece {
+    display: grid;
+    gap: 4px;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .piece.dragging { opacity: 0; }
+  .piece.dead { opacity: 0.25; filter: grayscale(0.8); }
+
+  .piece .mini {
+    width: var(--mini);
+    height: var(--mini);
+    border-radius: 22%;
+    box-shadow: inset 0 -2px 0 rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.35);
+  }
+  .piece .empty { visibility: hidden; }
+
+  /* ---- Drag ghost ---- */
+  #ghost {
+    position: fixed;
+    left: 0; top: 0;
+    display: grid;
+    gap: var(--gap);
+    pointer-events: none;
+    z-index: 50;
+    filter: drop-shadow(0 10px 16px rgba(0,0,0,0.4));
+  }
+  #ghost .gcell {
+    width: var(--cell);
+    height: var(--cell);
+    border-radius: 22%;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,0.28), inset 0 2px 0 rgba(255,255,255,0.35);
+  }
+  #ghost .empty { visibility: hidden; }
+
+  /* ---- Floating score text ---- */
+  .float-score {
+    position: fixed;
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--gold);
+    text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+    pointer-events: none;
+    z-index: 60;
+    animation: float-up 0.9s ease-out forwards;
+  }
+  @keyframes float-up {
+    0%   { opacity: 0; transform: translate(-50%, 0) scale(0.6); }
+    20%  { opacity: 1; transform: translate(-50%, -14px) scale(1.15); }
+    100% { opacity: 0; transform: translate(-50%, -60px) scale(1); }
+  }
+
+  /* ---- Game over overlay ---- */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 12, 30, 0.82);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s;
+  }
+  #overlay.show { opacity: 1; pointer-events: auto; }
+
+  #overlay h1 {
+    font-size: 40px;
+    font-weight: 900;
+    margin-bottom: 8px;
+    background: linear-gradient(180deg, #ffe9a8, #ffb74d);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  #overlay .final-label { font-size: 14px; opacity: 0.7; letter-spacing: 2px; text-transform: uppercase; }
+  #overlay .final-score { font-size: 56px; font-weight: 800; margin-bottom: 4px; }
+  #overlay .new-best {
+    color: var(--gold);
+    font-weight: 700;
+    font-size: 18px;
+    height: 24px;
+    margin-bottom: 24px;
+  }
+
+  #restart {
+    font: inherit;
+    font-size: 20px;
+    font-weight: 800;
+    color: #1a2148;
+    background: linear-gradient(180deg, #ffe082, #ffb74d);
+    border: none;
+    border-radius: 30px;
+    padding: 14px 52px;
+    box-shadow: 0 6px 20px rgba(255, 183, 77, 0.4);
+    cursor: pointer;
+  }
+  #restart:active { transform: scale(0.96); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <div class="score-box">
+      <div class="score-label">Score</div>
+      <div id="score">0</div>
+    </div>
+    <div id="combo-banner"></div>
+    <div class="score-box">
+      <div class="score-label"><span class="crown">👑</span> Best</div>
+      <div id="best">0</div>
+    </div>
+  </div>
+
+  <div id="board-wrap"><div id="board"></div></div>
+
+  <div id="tray">
+    <div class="slot" data-slot="0"></div>
+    <div class="slot" data-slot="1"></div>
+    <div class="slot" data-slot="2"></div>
+  </div>
+</div>
+
+<div id="ghost" hidden></div>
+
+<div id="overlay">
+  <h1>Game Over</h1>
+  <div class="final-label">Score</div>
+  <div class="final-score" id="final-score">0</div>
+  <div class="new-best" id="new-best"></div>
+  <button id="restart">Play Again</button>
+</div>
+
+<script>
+"use strict";
+
+/* ============================== Config ============================== */
+const N = 8; // board is N x N
+
+const COLORS = [
+  "#ff5c5c", // red
+  "#ffa726", // orange
+  "#ffd45e", // yellow
+  "#66d36e", // green
+  "#4fc3f7", // light blue
+  "#5c6cff", // indigo
+  "#c96cff", // purple
+];
+
+// Shapes as arrays of [row, col] offsets.
+const SHAPES = [
+  // singles / squares
+  { cells: [[0,0]], w: 1 },
+  { cells: [[0,0],[0,1],[1,0],[1,1]], w: 3 },
+  { cells: [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]], w: 2 },
+  // lines
+  { cells: [[0,0],[0,1]], w: 2 },
+  { cells: [[0,0],[1,0]], w: 2 },
+  { cells: [[0,0],[0,1],[0,2]], w: 3 },
+  { cells: [[0,0],[1,0],[2,0]], w: 3 },
+  { cells: [[0,0],[0,1],[0,2],[0,3]], w: 2 },
+  { cells: [[0,0],[1,0],[2,0],[3,0]], w: 2 },
+  { cells: [[0,0],[0,1],[0,2],[0,3],[0,4]], w: 1 },
+  { cells: [[0,0],[1,0],[2,0],[3,0],[4,0]], w: 1 },
+  // 2x3 rectangles
+  { cells: [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2]], w: 1 },
+  { cells: [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]], w: 1 },
+  // small L (corner) in 4 rotations
+  { cells: [[0,0],[1,0],[1,1]], w: 2 },
+  { cells: [[0,0],[0,1],[1,0]], w: 2 },
+  { cells: [[0,0],[0,1],[1,1]], w: 2 },
+  { cells: [[0,1],[1,0],[1,1]], w: 2 },
+  // big L in 4 rotations
+  { cells: [[0,0],[1,0],[2,0],[2,1],[2,2]], w: 1 },
+  { cells: [[0,0],[0,1],[0,2],[1,0],[2,0]], w: 1 },
+  { cells: [[0,0],[0,1],[0,2],[1,2],[2,2]], w: 1 },
+  { cells: [[0,2],[1,2],[2,0],[2,1],[2,2]], w: 1 },
+  // T in 4 rotations
+  { cells: [[0,0],[0,1],[0,2],[1,1]], w: 1.5 },
+  { cells: [[0,1],[1,0],[1,1],[1,2]], w: 1.5 },
+  { cells: [[0,0],[1,0],[1,1],[2,0]], w: 1.5 },
+  { cells: [[0,1],[1,0],[1,1],[2,1]], w: 1.5 },
+  // S / Z
+  { cells: [[0,1],[0,2],[1,0],[1,1]], w: 1 },
+  { cells: [[0,0],[0,1],[1,1],[1,2]], w: 1 },
+];
+
+const LINE_SCORE = 10;      // per line, multiplied by combo
+const STREAK_WINDOW = 3;    // placements allowed between clears to keep combo
+
+/* ============================== State ============================== */
+let grid;          // N x N array of color strings or null
+let pieces;        // 3 slots: {shape, color, rows, cols} or null
+let score, best;
+let combo;         // current combo multiplier (consecutive-clear count)
+let sinceClear;    // placements since last clear
+let gameOver;
+
+const boardEl = document.getElementById("board");
+const ghostEl = document.getElementById("ghost");
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const comboEl = document.getElementById("combo-banner");
+const overlayEl = document.getElementById("overlay");
+const cellEls = [];
+
+/* ============================ Layout ============================ */
+let CELL = 40, GAP = 4, MINI = 15;
+function layout() {
+  const appW = Math.min(window.innerWidth, 460) - 24;
+  const appH = window.innerHeight;
+  // board + padding must fit width; leave room for header (~90) and tray (~130)
+  const maxBoard = Math.min(appW - 12, appH - 240);
+  GAP = Math.max(3, Math.round(maxBoard / 100));
+  CELL = Math.floor((maxBoard - GAP * (N - 1)) / N);
+  MINI = Math.max(10, Math.floor(CELL * 0.42));
+  const root = document.documentElement.style;
+  root.setProperty("--cell", CELL + "px");
+  root.setProperty("--gap", GAP + "px");
+  root.setProperty("--mini", MINI + "px");
+}
+
+/* ============================ Board ============================ */
+function buildBoard() {
+  boardEl.innerHTML = "";
+  cellEls.length = 0;
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      const el = document.createElement("div");
+      el.className = "cell";
+      boardEl.appendChild(el);
+      cellEls.push(el);
+    }
+  }
+}
+
+function renderCell(r, c, opts = {}) {
+  const el = cellEls[r * N + c];
+  const color = grid[r][c];
+  el.classList.toggle("filled", !!color);
+  const old = el.querySelector(".block");
+  if (old) old.remove();
+  if (color) {
+    const b = document.createElement("div");
+    b.className = "block" + (opts.placed ? " placed" : "");
+    b.style.background = color;
+    el.appendChild(b);
+  }
+}
+
+function renderBoard() {
+  for (let r = 0; r < N; r++)
+    for (let c = 0; c < N; c++) renderCell(r, c);
+}
+
+/* ============================ Pieces ============================ */
+function randomShape() {
+  const total = SHAPES.reduce((s, x) => s + x.w, 0);
+  let roll = Math.random() * total;
+  for (const s of SHAPES) {
+    roll -= s.w;
+    if (roll <= 0) return s;
+  }
+  return SHAPES[0];
+}
+
+function makePiece() {
+  const shape = randomShape();
+  let rows = 0, cols = 0;
+  for (const [r, c] of shape.cells) {
+    rows = Math.max(rows, r + 1);
+    cols = Math.max(cols, c + 1);
+  }
+  return {
+    cells: shape.cells,
+    rows, cols,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+  };
+}
+
+function refillTray() {
+  pieces = [makePiece(), makePiece(), makePiece()];
+}
+
+function renderPiece(piece) {
+  const el = document.createElement("div");
+  el.className = "piece";
+  el.style.gridTemplateColumns = `repeat(${piece.cols}, var(--mini))`;
+  el.style.gridTemplateRows = `repeat(${piece.rows}, var(--mini))`;
+  const occupied = new Set(piece.cells.map(([r, c]) => r * 10 + c));
+  for (let r = 0; r < piece.rows; r++) {
+    for (let c = 0; c < piece.cols; c++) {
+      const m = document.createElement("div");
+      m.className = "mini" + (occupied.has(r * 10 + c) ? "" : " empty");
+      if (occupied.has(r * 10 + c)) m.style.background = piece.color;
+      el.appendChild(m);
+    }
+  }
+  return el;
+}
+
+function renderTray() {
+  document.querySelectorAll(".slot").forEach((slot, i) => {
+    slot.innerHTML = "";
+    const piece = pieces[i];
+    if (!piece) return;
+    const el = renderPiece(piece);
+    if (!anyFit(piece)) el.classList.add("dead");
+    el.dataset.slot = i;
+    slot.appendChild(el);
+  });
+}
+
+/* ============================ Rules ============================ */
+function canPlace(piece, row, col) {
+  for (const [dr, dc] of piece.cells) {
+    const r = row + dr, c = col + dc;
+    if (r < 0 || r >= N || c < 0 || c >= N || grid[r][c]) return false;
+  }
+  return true;
+}
+
+function anyFit(piece) {
+  for (let r = 0; r <= N - piece.rows; r++)
+    for (let c = 0; c <= N - piece.cols; c++)
+      if (canPlace(piece, r, c)) return true;
+  return false;
+}
+
+function fullLines() {
+  const rows = [], cols = [];
+  for (let r = 0; r < N; r++)
+    if (grid[r].every(Boolean)) rows.push(r);
+  for (let c = 0; c < N; c++) {
+    let full = true;
+    for (let r = 0; r < N; r++) if (!grid[r][c]) { full = false; break; }
+    if (full) cols.push(c);
+  }
+  return { rows, cols };
+}
+
+// Lines that WOULD complete if piece were placed at row/col (for preview)
+function previewLines(piece, row, col) {
+  for (const [dr, dc] of piece.cells) grid[row + dr][col + dc] = "#fff";
+  const lines = fullLines();
+  for (const [dr, dc] of piece.cells) grid[row + dr][col + dc] = null;
+  return lines;
+}
+
+/* ============================ Scoring ============================ */
+function setScore(v) {
+  score = v;
+  scoreEl.textContent = score;
+  if (score > best) {
+    best = score;
+    bestEl.textContent = best;
+    localStorage.setItem("bb-best", best);
+  }
+}
+
+function showCombo(mult, lineCount) {
+  let msg;
+  if (mult >= 2) msg = `COMBO ×${mult}!`;
+  else if (lineCount >= 2) msg = `${lineCount} LINES!`;
+  else msg = "NICE!";
+  comboEl.textContent = msg;
+  comboEl.classList.add("show");
+  clearTimeout(showCombo.t);
+  showCombo.t = setTimeout(() => comboEl.classList.remove("show"), 1100);
+}
+
+function floatScore(points, x, y) {
+  const el = document.createElement("div");
+  el.className = "float-score";
+  el.textContent = "+" + points;
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 950);
+}
+
+/* ============================ Placement ============================ */
+function place(slotIdx, row, col, dropX, dropY) {
+  const piece = pieces[slotIdx];
+  for (const [dr, dc] of piece.cells) {
+    grid[row + dr][col + dc] = piece.color;
+    renderCell(row + dr, col + dc, { placed: true });
+  }
+  pieces[slotIdx] = null;
+
+  let points = piece.cells.length;
+  const { rows, cols } = fullLines();
+  const lineCount = rows.length + cols.length;
+
+  if (lineCount > 0) {
+    combo = sinceClear < STREAK_WINDOW ? combo + 1 : 1;
+    sinceClear = 0;
+    points += LINE_SCORE * lineCount * combo;
+    showCombo(combo, lineCount);
+    clearLines(rows, cols);
+    if (navigator.vibrate) navigator.vibrate(30);
+  } else {
+    sinceClear++;
+    if (sinceClear >= STREAK_WINDOW) combo = 0;
+  }
+
+  setScore(score + points);
+  floatScore(points, dropX, dropY);
+
+  if (pieces.every(p => p === null)) refillTray();
+  renderTray();
+  checkGameOver();
+}
+
+function clearLines(rows, cols) {
+  const targets = new Set();
+  for (const r of rows) for (let c = 0; c < N; c++) targets.add(r * N + c);
+  for (const c of cols) for (let r = 0; r < N; r++) targets.add(r * N + c);
+  for (const idx of targets) {
+    const block = cellEls[idx].querySelector(".block");
+    if (block) block.classList.add("clearing");
+    grid[Math.floor(idx / N)][idx % N] = null;
+  }
+  setTimeout(() => {
+    for (const idx of targets) renderCell(Math.floor(idx / N), idx % N);
+  }, 300);
+}
+
+function checkGameOver() {
+  const alive = pieces.filter(Boolean);
+  if (alive.length && !alive.some(anyFit)) {
+    gameOver = true;
+    document.getElementById("final-score").textContent = score;
+    document.getElementById("new-best").textContent =
+      score >= best && score > 0 ? "🎉 New Best!" : "";
+    setTimeout(() => overlayEl.classList.add("show"), 600);
+  }
+}
+
+/* ============================ Drag & drop ============================ */
+const drag = { active: false, slot: -1, pieceEl: null, valid: false, row: 0, col: 0 };
+const LIFT = 70; // px above the finger so the piece stays visible on touch
+
+function buildGhost(piece) {
+  ghostEl.innerHTML = "";
+  ghostEl.style.gridTemplateColumns = `repeat(${piece.cols}, var(--cell))`;
+  ghostEl.style.gridTemplateRows = `repeat(${piece.rows}, var(--cell))`;
+  const occupied = new Set(piece.cells.map(([r, c]) => r * 10 + c));
+  for (let r = 0; r < piece.rows; r++) {
+    for (let c = 0; c < piece.cols; c++) {
+      const g = document.createElement("div");
+      g.className = "gcell" + (occupied.has(r * 10 + c) ? "" : " empty");
+      if (occupied.has(r * 10 + c)) g.style.background = piece.color;
+      ghostEl.appendChild(g);
+    }
+  }
+  ghostEl.hidden = false;
+}
+
+function ghostSize(piece) {
+  return {
+    w: piece.cols * CELL + (piece.cols - 1) * GAP,
+    h: piece.rows * CELL + (piece.rows - 1) * GAP,
+  };
+}
+
+function clearPreview() {
+  for (const el of cellEls) el.classList.remove("preview", "preview-clear");
+}
+
+function updateDrag(x, y) {
+  const piece = pieces[drag.slot];
+  const { w, h } = ghostSize(piece);
+  const isTouch = drag.pointerType !== "mouse";
+  const gx = x - w / 2;
+  const gy = (isTouch ? y - LIFT : y) - h / 2;
+  ghostEl.style.transform = `translate(${gx}px, ${gy}px)`;
+
+  clearPreview();
+  drag.valid = false;
+
+  const rect = boardEl.getBoundingClientRect();
+  const col = Math.round((gx - rect.left) / (CELL + GAP));
+  const row = Math.round((gy - rect.top) / (CELL + GAP));
+  if (canPlace(piece, row, col)) {
+    drag.valid = true;
+    drag.row = row;
+    drag.col = col;
+    for (const [dr, dc] of piece.cells)
+      cellEls[(row + dr) * N + (col + dc)].classList.add("preview");
+    const { rows, cols } = previewLines(piece, row, col);
+    for (const r of rows)
+      for (let c = 0; c < N; c++) cellEls[r * N + c].classList.add("preview-clear");
+    for (const c of cols)
+      for (let r = 0; r < N; r++) cellEls[r * N + c].classList.add("preview-clear");
+  }
+}
+
+function endDrag(x, y) {
+  ghostEl.hidden = true;
+  clearPreview();
+  if (drag.pieceEl) drag.pieceEl.classList.remove("dragging");
+  if (drag.valid) place(drag.slot, drag.row, drag.col, x, y);
+  drag.active = false;
+  drag.slot = -1;
+  drag.pieceEl = null;
+}
+
+document.addEventListener("pointerdown", (e) => {
+  if (gameOver) return;
+  const pieceEl = e.target.closest(".piece");
+  if (!pieceEl || pieceEl.classList.contains("dead")) return;
+  const slot = +pieceEl.dataset.slot;
+  if (!pieces[slot]) return;
+  drag.active = true;
+  drag.slot = slot;
+  drag.pieceEl = pieceEl;
+  drag.pointerType = e.pointerType;
+  pieceEl.classList.add("dragging");
+  buildGhost(pieces[slot]);
+  updateDrag(e.clientX, e.clientY);
+});
+
+document.addEventListener("pointermove", (e) => {
+  if (drag.active) updateDrag(e.clientX, e.clientY);
+});
+
+document.addEventListener("pointerup", (e) => {
+  if (drag.active) endDrag(e.clientX, e.clientY);
+});
+
+document.addEventListener("pointercancel", () => {
+  if (drag.active) endDrag(0, 0);
+});
+
+/* ============================ Game flow ============================ */
+function newGame() {
+  grid = Array.from({ length: N }, () => Array(N).fill(null));
+  score = 0;
+  combo = 0;
+  sinceClear = 0;
+  gameOver = false;
+  scoreEl.textContent = "0";
+  overlayEl.classList.remove("show");
+  refillTray();
+  renderBoard();
+  renderTray();
+}
+
+document.getElementById("restart").addEventListener("click", newGame);
+
+window.addEventListener("resize", () => { layout(); });
+window.addEventListener("orientationchange", () => { setTimeout(layout, 100); });
+
+best = +(localStorage.getItem("bb-best") || 0);
+bestEl.textContent = best;
+layout();
+buildBoard();
+newGame();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
