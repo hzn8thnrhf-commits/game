@@ -1,4 +1,4 @@
-const CACHE = "block-burst-v1";
+const CACHE = "block-burst-v2";
 const ASSETS = ["./", "index.html", "manifest.json", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", (e) => {
