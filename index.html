@@ -34,6 +34,7 @@
     touch-action: none;
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
   }
 
   body {
@@ -405,7 +406,7 @@
     left: 0; top: 0;
     pointer-events: none;
     z-index: 50;
-    filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.45));
+    will-change: transform;
   }
   #ghost-inner {
     display: grid;
@@ -422,6 +423,10 @@
     width: var(--cell);
     height: var(--cell);
     border-radius: 24%;
+    box-shadow:
+      inset 0 2px 2px rgba(255, 255, 255, 0.45),
+      inset 0 -3px 5px rgba(0, 0, 0, 0.32),
+      0 10px 16px rgba(0, 0, 0, 0.4);
   }
   #ghost .empty { visibility: hidden; }
 
@@ -1063,10 +1068,23 @@ function checkGameOver() {
 }
 
 /* ============================ Drag & drop ============================ */
-const drag = { active: false, slot: -1, pieceEl: null, valid: false, row: 0, col: 0 };
+// Pointer events only record the finger; a rAF loop moves the ghost with
+// time-based exponential smoothing, so motion is frame-perfect at any
+// refresh rate (60/120Hz) and the snap is a smooth magnetic pull.
+const drag = {
+  active: false, slot: -1, pieceEl: null, valid: false, row: 0, col: 0,
+  pointerType: "touch",
+  px: 0, py: 0,     // latest pointer position
+  x: 0, y: 0,       // ghost position this frame (smoothed)
+  tx: 0, ty: 0,     // ghost target position
+  boardRect: null,  // cached at pickup — the board doesn't move mid-drag
+  raf: 0, lastT: 0,
+};
 const LIFT_GAP = 26;      // px between fingertip and the piece's bottom edge
 const SNAP_RADIUS = 0.85; // how far (in cells) a valid spot can be and still snap
 const SNAP_STICKY = 0.2;  // distance bonus for keeping the current target
+const FOLLOW_FREE = 34;   // 1/s — how tightly the ghost chases the finger
+const FOLLOW_SNAP = 16;   // slower, springier ease onto a snapped target
 
 const ghostInnerEl = document.getElementById("ghost-inner");
 let ghostReturn = null;      // in-flight fly-back animation
@@ -1108,17 +1126,30 @@ function clearPreview() {
   for (const el of cellEls) el.classList.remove("preview", "preview-clear");
 }
 
-function updateDrag(x, y) {
+function renderPreview(piece, row, col) {
+  clearPreview();
+  for (const [dr, dc] of piece.cells)
+    cellEls[(row + dr) * N + (col + dc)].classList.add("preview");
+  const { rows, cols } = previewLines(piece, row, col);
+  for (const r of rows)
+    for (let c = 0; c < N; c++) cellEls[r * N + c].classList.add("preview-clear");
+  for (const c of cols)
+    for (let r = 0; r < N; r++) cellEls[r * N + c].classList.add("preview-clear");
+}
+
+// Cheap per-pointer-event work: recompute the target; touch the DOM only
+// when the snap target actually changes.
+function updateTarget() {
   const piece = pieces[drag.slot];
   const { w, h } = ghostSize(piece);
   const isTouch = drag.pointerType !== "mouse";
-  const gx = x - w / 2;
+  const gx = drag.px - w / 2;
   // bottom-anchored lift: the whole piece stays above the fingertip, however tall
-  const gy = isTouch ? y - LIFT_GAP - h : y - h / 2;
+  const gy = isTouch ? drag.py - LIFT_GAP - h : drag.py - h / 2;
 
-  // find the nearest valid placement around the ghost's grid position,
-  // with a bias toward the current target so it doesn't jitter at edges
-  const rect = boardEl.getBoundingClientRect();
+  // nearest valid placement around the ghost's grid position, with a bias
+  // toward the current target so it doesn't jitter at cell boundaries
+  const rect = drag.boardRect;
   const pitch = CELL + GAP;
   const exactCol = (gx - rect.left) / pitch;
   const exactRow = (gy - rect.top) / pitch;
@@ -1135,32 +1166,39 @@ function updateDrag(x, y) {
     }
   }
 
-  clearPreview();
   if (best) {
-    const snapped = drag.valid && best.r === drag.row && best.c === drag.col;
+    const changed = !drag.valid || best.r !== drag.row || best.c !== drag.col;
     drag.valid = true;
     drag.row = best.r;
     drag.col = best.c;
-    // magnetic snap: ghost eases onto the target cells
-    ghostEl.style.transition = "transform 0.09s ease-out";
-    ghostEl.style.transform =
-      `translate(${rect.left + best.c * pitch}px, ${rect.top + best.r * pitch}px)`;
-    if (!snapped && navigator.vibrate) navigator.vibrate(4);
-    for (const [dr, dc] of piece.cells)
-      cellEls[(best.r + dr) * N + (best.c + dc)].classList.add("preview");
-    const { rows, cols } = previewLines(piece, best.r, best.c);
-    for (const r of rows)
-      for (let c = 0; c < N; c++) cellEls[r * N + c].classList.add("preview-clear");
-    for (const c of cols)
-      for (let r = 0; r < N; r++) cellEls[r * N + c].classList.add("preview-clear");
+    drag.tx = rect.left + best.c * pitch;
+    drag.ty = rect.top + best.r * pitch;
+    if (changed) {
+      renderPreview(piece, best.r, best.c);
+      if (navigator.vibrate) navigator.vibrate(4);
+    }
   } else {
+    if (drag.valid) clearPreview();
     drag.valid = false;
-    ghostEl.style.transition = "none";
-    ghostEl.style.transform = `translate(${gx}px, ${gy}px)`;
+    drag.tx = gx;
+    drag.ty = gy;
   }
 }
 
+function dragFrame(t) {
+  if (!drag.active) return;
+  const dt = Math.min(Math.max(t - drag.lastT, 0.5), 50) / 1000;
+  drag.lastT = t;
+  const k = drag.valid ? FOLLOW_SNAP : FOLLOW_FREE;
+  const a = 1 - Math.exp(-k * dt);
+  drag.x += (drag.tx - drag.x) * a;
+  drag.y += (drag.ty - drag.y) * a;
+  ghostEl.style.transform = `translate3d(${drag.x}px, ${drag.y}px, 0)`;
+  drag.raf = requestAnimationFrame(dragFrame);
+}
+
 function endDrag(x, y) {
+  cancelAnimationFrame(drag.raf);
   clearPreview();
   const { valid, slot, pieceEl } = drag;
   const row = drag.row, col = drag.col;
@@ -1210,14 +1248,29 @@ document.addEventListener("pointerdown", (e) => {
   drag.slot = slot;
   drag.pieceEl = pieceEl;
   drag.pointerType = e.pointerType;
+  drag.px = e.clientX;
+  drag.py = e.clientY;
+  drag.boardRect = boardEl.getBoundingClientRect();
   pieceEl.classList.add("dragging");
   AudioFX.pickup();
   buildGhost(pieces[slot]);
-  updateDrag(e.clientX, e.clientY);
+  // start under the finger and glide up to the lifted position
+  const { w, h } = ghostSize(pieces[slot]);
+  drag.x = e.clientX - w / 2;
+  drag.y = e.clientY - h / 2;
+  drag.valid = false;
+  ghostEl.style.transition = "none";
+  ghostEl.style.transform = `translate3d(${drag.x}px, ${drag.y}px, 0)`;
+  updateTarget();
+  drag.lastT = performance.now();
+  drag.raf = requestAnimationFrame(dragFrame);
 });
 
 document.addEventListener("pointermove", (e) => {
-  if (drag.active) updateDrag(e.clientX, e.clientY);
+  if (!drag.active) return;
+  drag.px = e.clientX;
+  drag.py = e.clientY;
+  updateTarget();
 });
 
 document.addEventListener("pointerup", (e) => {
