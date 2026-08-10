@@ -1,0 +1,14 @@
+{
+  "name": "Block Burst",
+  "short_name": "Block Burst",
+  "description": "A Block Blast-style block puzzle game. Drag pieces onto the board and clear lines!",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1033",
+  "theme_color": "#0d1033",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
